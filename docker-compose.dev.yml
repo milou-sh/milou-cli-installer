@@ -1,0 +1,184 @@
+version: '3.8'
+
+services:
+  database:
+    image: ghcr.io/milou-sh/milou/database:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-secure}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure}
+      POSTGRES_DB: milou
+      DB_NAME: milou
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data:rw
+    networks:
+      - milou_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-milou}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "8082:80"
+    networks:
+      - milou_network
+    depends_on:
+      - database
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-your_redis_password}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-your_redis_password}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - milou_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "localhost", "-a", "${REDIS_PASSWORD:-your_redis_password}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - milou_network
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/milou-sh/milou/backend:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    environment:
+      - NODE_ENV=development
+      - PORT=9999
+      - ENGINE_URL=http://engine:8089
+    ports:
+      - "9999:9999"
+    depends_on:
+      database:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - milou_network
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/milou-sh/milou/frontend:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=/api
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - milou_network
+    restart: unless-stopped
+
+  engine:
+    image: ghcr.io/milou-sh/milou/engine:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672
+      - DATABASE_URI=postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@database:5432/${POSTGRES_DB:-milou}
+    ports:
+      - "8089:8089"
+    volumes:
+      - engine_logs:/app/src/logger/logs:rw
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - milou_network
+    restart: unless-stopped
+
+  nginx:
+    image: ghcr.io/milou-sh/milou/nginx:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    ports:
+      - "80:80"
+      - "${SSL_PORT:-443}:443"
+    volumes:
+      - ./ssl/cert.pem:/etc/ssl/milou.crt:ro
+      - ./ssl/key.pem:/etc/ssl/milou.key:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - milou_network
+    restart: unless-stopped
+
+  database-migrations:
+    image: ghcr.io/milou-sh/milou/backend:${MILOU_VERSION:-latest}
+    container_name: milou-cli-dev-database-migrations
+    profiles:
+      - database-migrations
+    entrypoint: ""
+    command: |
+      sh -c "npm run migration:run:prod --workspace=backend"
+    env_file:
+      - ./.env
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - DATABASE_URI=${DATABASE_URI}
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - milou_network
+
+networks:
+  milou_network:
+    driver: bridge
+
+volumes:
+  pgdata: {}
+  rabbitmq_data: {}
+  pgadmin_data: {}
+  redis_data: {}
+  engine_logs: {}

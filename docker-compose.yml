@@ -1,0 +1,245 @@
+version: '3.8'
+# This docker file is used on the staging server to run with traefik
+
+services:
+  database:
+    image: ghcr.io/milou-sh/milou/database:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_USER: secure
+      POSTGRES_PASSWORD: secure
+      POSTGRES_DB: postgres
+      DB_NAME: milou
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    networks:
+      - milou_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "172.20.0.1:8082:80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pgadmin.entrypoints=vpn-pgadmin"
+    networks:
+      - milou_network
+      - proxy
+    depends_on:
+      - database
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-your_redis_password}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-your_redis_password}
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
+    networks:
+      - milou_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "localhost", "-a", "${REDIS_PASSWORD:-your_redis_password}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "172.20.0.1:8083:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - milou_network
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/milou-sh/milou/backend:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=9999
+      - ENGINE_URL=http://engine:8089
+      # ... other environment variables
+    expose:
+      - "9999"
+    labels:
+      - "traefik.enable=true"
+      
+      # Backend API routing
+      - "traefik.http.routers.backend-api.rule=Host(`demo.milou.sh`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend-api.entrypoints=web,websecure"
+      - "traefik.http.routers.backend-api.tls.certresolver=myresolver"
+      - "traefik.http.routers.backend-api.service=backend-api-service"
+      - "traefik.http.services.backend-api-service.loadbalancer.server.port=9999"
+      - "traefik.http.routers.backend-api.priority=100"
+
+      # WebSocket (socket.io) routing
+      - "traefik.http.routers.websocket.rule=Host(`demo.milou.sh`) && PathPrefix(`/socket.io`)"
+      - "traefik.http.routers.websocket.entrypoints=web,websecure"
+      - "traefik.http.routers.websocket.tls.certresolver=myresolver"
+      - "traefik.http.routers.websocket.service=backend-socket-service"
+      - "traefik.http.services.backend-socket-service.loadbalancer.server.port=9999"
+      - "traefik.http.routers.websocket.priority=200"
+    depends_on:
+      database:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - milou_network
+      - proxy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9999/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    image: ghcr.io/milou-sh/milou/frontend:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    environment:
+      - VITE_API_URL=/api
+      - NODE_ENV=${NODE_ENV:-development}
+    expose:
+      - "5173"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`demo.milou.sh`) && PathPrefix(`/`) && !PathPrefix(`/socket.io`) && !PathPrefix(`/api`)"
+      - "traefik.http.routers.frontend.entrypoints=web,websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=myresolver"
+      - "traefik.http.routers.frontend.priority=1"
+    depends_on:
+      - backend
+    networks:
+      - milou_network
+      - proxy
+
+  engine:
+    image: ghcr.io/milou-sh/milou/engine:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - DATABASE_URI=postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@database:5432/${POSTGRES_DB:-milou}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - engine_logs:/app/src/logger/logs
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - milou_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8089/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  docs:
+    image: ghcr.io/milou-sh/milou/docs:${MILOU_VERSION:-latest}
+    container_name: milou-docs
+    restart: unless-stopped
+    expose:
+      - "3000"
+    networks:
+      - proxy
+      - milou_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.docs.rule=Host(`docs.milou.sh`)"
+      - "traefik.http.routers.docs.entrypoints=web,websecure"
+      - "traefik.http.routers.docs.tls.certresolver=myresolver"
+      - "traefik.http.services.docs.loadbalancer.server.port=3000"
+      - "traefik.http.routers.docs.priority=10"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Database Migration Service
+  # Runs migrations using the backend image, then exits
+  # Only activated when explicitly called with: docker compose up database-migrations
+  database-migrations:
+    image: ghcr.io/milou-sh/milou/backend:${MILOU_VERSION:-latest}
+    container_name: milou-cli-database-migrations
+    profiles:
+      - "database-migrations"
+    entrypoint: ""
+    command: |
+      sh -c "npm run migration:run:prod --workspace=backend"
+    env_file:
+      - ./.env
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - DATABASE_URI=${DATABASE_URI}
+      - DB_HOST=${DB_HOST:-database}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - milou_network
+
+networks:
+  milou_network:
+    driver: bridge
+  proxy:
+    external: true
+
+volumes:
+  pgdata:
+  rabbitmq_data:
+  pgadmin_data:
+  redis_data:
+  backend_logs:
+  engine_logs:

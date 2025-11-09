@@ -1,0 +1,212 @@
+#!/bin/bash
+# milou - Clean CLI tool for Milou management
+# Version: 1.0.0
+#
+# Focus areas:
+# - Security by default (600 permissions on .env, no silent failures)
+# - Atomic operations (temp + mv, never sed -i)
+# - Simplicity (just the tooling, no proprietary app code)
+# - Explicit error handling (die on error, no || true)
+
+# Use careful error handling instead of strict mode
+# set -e would cause exits on any non-zero return (breaks prompts)
+set -uo pipefail
+
+#=============================================================================
+# Initialization
+#=============================================================================
+
+# Determine script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export SCRIPT_DIR
+
+# Determine CLI version (env var override > VERSION file > fallback)
+VERSION_FILE="${SCRIPT_DIR}/VERSION"
+if [[ -n "${CLI_VERSION:-}" ]]; then
+    CLI_VERSION="$CLI_VERSION"
+elif [[ -f "$VERSION_FILE" ]]; then
+    CLI_VERSION="$(<"$VERSION_FILE")"
+else
+    CLI_VERSION="0.0.0"
+fi
+
+# Load modules
+source "${SCRIPT_DIR}/lib/core.sh"
+source "${SCRIPT_DIR}/lib/env.sh"
+source "${SCRIPT_DIR}/lib/ghcr.sh"
+source "${SCRIPT_DIR}/lib/ssl.sh"
+source "${SCRIPT_DIR}/lib/docker.sh"
+source "${SCRIPT_DIR}/lib/backup.sh"
+source "${SCRIPT_DIR}/lib/setup.sh"
+source "${SCRIPT_DIR}/lib/version.sh"
+
+milou_banner() {
+    cat <<'BANNER'
+ __  __ _____ _      ____  _    _ 
+|  \/  |_   _| |    / __ \| |  | |
+| \  / | | | | |   | |  | | |  | |
+| |\/| | | | | |   | |  | | |  | |
+| |  | |_| |_| |___| |__| | |__| |
+|_|  |_|_____|______\____/ \____/ 
+                                  
+                                  
+BANNER
+}
+
+#=============================================================================
+# Command Handlers
+#=============================================================================
+
+# Show help message
+show_help() {
+    milou_banner
+    cat <<EOF
+Milou CLI ${CLI_VERSION} — secure management tooling for the Milou platform
+
+USAGE:
+    milou <command> [options]
+
+PRIMARY COMMANDS:
+    setup                     Initial setup (generates .env, SSL, etc.)
+    start                     Start Milou services
+    stop                      Stop Milou services
+    restart                   Restart Milou services
+    status                    Show service status
+    logs [service]            Show service logs (optional: specific service)
+    update                    Update Milou (pull images and restart)
+    check-updates             Check if updates are available
+
+    backup [name]             Create backup of configuration and SSL
+    restore <name>            Restore from backup
+    backup list               List available backups
+    backup clean [keep]       Clean old backups (default: keep last 10)
+
+    config <action>           Manage configuration
+        get <key>             Get configuration value
+        set <key> <value>     Set configuration value
+        show                  Show full configuration
+        validate              Validate configuration
+        migrate               Migrate .env to new format (add ENGINE_URL)
+
+    ssl <action>              Manage SSL certificates
+        generate [domain]     Generate self-signed certificate
+        import <cert> <key>   Import existing certificate
+        verify                Verify certificate validity
+        info                  Show certificate information
+        renew [domain]        Renew certificate
+        remove                Remove certificates
+
+    ghcr <action>             GitHub Container Registry operations
+        login [token]         Login to GHCR
+        setup                 Interactive GHCR token setup
+        status                Check authentication status
+        validate <token>      Validate GHCR token
+
+    db <action>               Database operations
+        migrate               Run database migrations
+
+    docker <action>           Docker helper passthrough
+        start                 Start services
+        stop                  Stop services
+        restart               Restart services
+        status                Show service status
+        logs [service]        Show logs
+        pull                  Pull latest images
+        build                 Build images
+        clean                 Clean up Docker resources
+        update                Update and restart
+
+    version [action]          Version management helpers
+        show                  Show version information
+        check                 Check for updates
+        current               Show current version
+        latest                Show latest available version
+    help                      Show this help message
+
+EXAMPLES:
+    milou setup                       Run initial setup
+    milou start                       Start all services
+    milou config get ENGINE_URL       Get ENGINE_URL value
+    milou ssl generate example.com    Generate SSL cert for example.com
+    milou logs backend                Show backend service logs
+    milou update                      Update Milou to latest version
+
+DOCUMENTATION:
+    Full product docs live at https://docs.milou.sh. This repository focuses
+    on the installer + CLI workflow.
+
+EOF
+}
+
+# Show version
+show_version() {
+    milou_banner
+    cat <<EOF
+Milou CLI ${CLI_VERSION}
+
+- Hardened bash modules only (no proprietary Milou source)
+- Atomic ops and enforced permissions for .env + SSL
+- Requires paid GHCR access for application containers
+
+EOF
+}
+
+# Main command router
+main() {
+    local command="${1:-help}"
+    # Only shift if we have arguments
+    [[ $# -gt 0 ]] && shift
+
+    case "$command" in
+        setup)
+            setup_manage "$@"
+            ;;
+        start|stop|restart|status|logs|update|pull|build|clean)
+            # Docker commands - route through docker_manage
+            docker_manage "$command" "$@"
+            ;;
+        backup)
+            backup_manage "$@"
+            ;;
+        restore)
+            backup_restore "$@"
+            ;;
+        config)
+            env_manage "$@"
+            ;;
+        ssl)
+            ssl_manage "$@"
+            ;;
+        ghcr)
+            ghcr_manage "$@"
+            ;;
+        db)
+            db_manage "$@"
+            ;;
+        docker)
+            docker_manage "$@"
+            ;;
+        check-updates)
+            version_check_updates
+            ;;
+        version|--version|-v)
+            version_manage "$@"
+            ;;
+        help|--help|-h|"")
+            show_help
+            ;;
+        *)
+            log_error "Unknown command: $command"
+            echo ""
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+#=============================================================================
+# Entry Point
+#=============================================================================
+
+# Run main with all arguments
+main "$@"

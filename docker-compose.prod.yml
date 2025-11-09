@@ -1,0 +1,205 @@
+version: '3.8'
+
+services:
+  database:
+    image: ghcr.io/milou-sh/milou/database:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    networks:
+      - milou_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "8082:80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pgadmin.entrypoints=vpn-pgadmin"
+    networks:
+      - milou_network
+    depends_on:
+      - database
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-your_redis_password}
+    env_file:
+      - ./.env
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
+    networks:
+      - milou_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "localhost", "-a", "${REDIS_PASSWORD:-your_redis_password}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-milou}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:-changeme}
+      - RABBITMQ_ERLANG_COOKIE=${RABBITMQ_ERLANG_COOKIE}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - milou_network
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/milou-sh/milou/backend:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    environment:
+      - ENGINE_URL=http://engine:8089
+      - PORT=9999
+    expose:
+      - "9999"
+    # Volume mount removed for production - code is baked into GHCR image
+    # For development with local source: uncomment the line below
+    # volumes:
+    #   - ./dashboard:/app/dashboard
+    depends_on:
+      database:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - milou_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9999/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    image: ghcr.io/milou-sh/milou/frontend:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    expose:
+      - "5173"
+    networks:
+      - milou_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5173/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  engine:
+    image: ghcr.io/milou-sh/milou/engine:${MILOU_VERSION:-latest}
+    env_file:
+      - ./.env
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - engine_logs:/app/src/logger/logs
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - milou_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8089/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Database Migration Service
+  # Runs migrations using the backend image, then exits
+  # Only activated when explicitly called with: docker compose up database-migrations
+  database-migrations:
+    image: ghcr.io/milou-sh/milou/backend:${MILOU_VERSION:-latest}
+    container_name: milou-cli-database-migrations
+    profiles:
+      - "database-migrations"
+    entrypoint: ""
+    command: |
+      sh -c "npm run migration:run:prod --workspace=backend"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - DATABASE_URI=${DATABASE_URI}
+      - DB_HOST=${DB_HOST:-database}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - milou_network
+
+  # The nginx service has been removed to avoid interference with Traefik.
+  nginx:
+    image: ghcr.io/milou-sh/milou/nginx:${MILOU_VERSION:-latest}
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file:
+      - ./.env
+    environment:
+      - SERVER_NAME=${DOMAIN:-localhost}
+    volumes:
+      - ./ssl/cert.pem:/etc/ssl/milou.crt:ro
+      - ./ssl/key.pem:/etc/ssl/milou.key:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - milou_network
+
+networks:
+  milou_network:
+    driver: bridge
+
+volumes:
+  pgdata:
+  rabbitmq_data:
+  pgadmin_data:
+  redis_data:
+  backend_logs:
+  engine_logs:
