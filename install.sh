@@ -1,6 +1,6 @@
 #!/bin/bash
 # Milou CLI Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/milou-sh/milou-cli-installer/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/milou-sh/milou-cli-installer/master/install.sh | bash
 set -e
 
 # Colors for output
@@ -11,22 +11,17 @@ NC='\033[0m'
 
 # Configuration
 REPO="${MILOU_REPO:-https://github.com/milou-sh/milou-cli-installer}"
-BRANCH="${MILOU_BRANCH:-main}"
+BRANCH="${MILOU_BRANCH:-master}"
 INSTALL_DIR="${MILOU_INSTALL_DIR:-/opt/milou}"
 
 banner() {
     cat <<'BANNER'
- __  __ ___ _     ___  _   _ 
-|  \/  |_ _| |   |_ _|| \ | |
-| |\/| || || |    | | |  \| |
-| |  | || || |___ | | | |\  |
-|_|  |_|___|_____|___||_| \_|
-
-  ____ _     ___ 
- / ___| |   |_ _|
-| |   | |    | | 
-| |___| |___ | | 
- \____|_____|___|
+ __  __ ___ _     ___  _   _    ____ _     ___ 
+|  \/  |_ _| |   / _ \| | | |  / ___| |   |_ _|
+| |\/| || || |  | | | | | | | | |   | |    | | 
+| |  | || || |__| |_| | |_| | | |___| |___ | | 
+|_|  |_|___|_____\___/ \___/   \____|_____|___|
+                                               
 BANNER
 }
 

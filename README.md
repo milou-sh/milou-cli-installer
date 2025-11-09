@@ -49,7 +49,7 @@ This repository contains **only** the installer, bash modules, and sample docker
 ### System install (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/milou-sh/milou-cli-installer/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/milou-sh/milou-cli-installer/master/install.sh | sudo bash
 ```
 
 - Installs into `/opt/milou`
@@ -61,7 +61,7 @@ curl -fsSL https://raw.githubusercontent.com/milou-sh/milou-cli-installer/main/i
 
 ```bash
 MILOU_INSTALL_DIR="$HOME/milou" \
-curl -fsSL https://raw.githubusercontent.com/milou-sh/milou-cli-installer/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/milou-sh/milou-cli-installer/master/install.sh | bash
 ```
 
 Adds the target directory to your shell `PATH` so you can run `milou` directly.
