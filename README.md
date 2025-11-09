@@ -1,17 +1,12 @@
 # Milou CLI
 
 ```
- __  __ ___ _     ___  _   _ 
-|  \/  |_ _| |   |_ _|| \ | |
-| |\/| || || |    | | |  \| |
-| |  | || || |___ | | | |\  |
-|_|  |_|___|_____|___||_| \_|
-
-  ____ _     ___ 
- / ___| |   |_ _|
-| |   | |    | | 
-| |___| |___ | | 
- \____|_____|___|
+ __  __ ___ _     ___  _   _    ____ _     ___ 
+|  \/  |_ _| |   / _ \| | | |  / ___| |   |_ _|
+| |\/| || || |  | | | | | | | | |   | |    | | 
+| |  | || || |__| |_| | |_| | | |___| |___ | | 
+|_|  |_|___|_____\___/ \___/   \____|_____|___|
+                                               
 ```
 
 Secure, scripted operations tooling for the Milou platform. The CLI itself is open source; Milou services stay proprietary and ship as GHCR images behind authentication.
