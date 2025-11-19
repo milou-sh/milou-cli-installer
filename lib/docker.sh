@@ -315,9 +315,20 @@ docker_pull() {
         current_version="$target_version"
     fi
 
+    # Pull images (with version if specified)
     log_info "Pulling Docker images for version: $current_version"
-
-    docker_compose_run pull || die "Failed to pull images"
+    
+    local pull_output
+    pull_output=$(docker_compose_run pull 2>&1) || die "Failed to pull images"
+    
+    # Check if images were actually updated (for mutable tags like dev/latest)
+    # If no new layers downloaded and we aren't forcing a version change, skip restart
+    if [[ -z "$target_version" || "$target_version" == "$current_version" ]]; then
+        if ! echo "$pull_output" | grep -qE "Downloaded newer image|Pulling fs layer|Verifying Checksum"; then
+            log_success "Images are up to date"
+            return 2  # Signal no changes
+        fi
+    fi
 
     log_success "Docker images updated successfully"
     return 0
@@ -385,6 +396,7 @@ docker_update() {
             fi
         else
             log_info "Already running latest version"
+            return 0
         fi
     fi
 
@@ -407,7 +419,26 @@ docker_update() {
 
     # Pull images (with version if specified)
     docker_pull "$target_version"
+    local pull_result=$?
     
+    if [[ $pull_result -eq 2 ]]; then
+        # Images were up to date, but we should still check if CLI tools updated
+        if [[ -d "$SCRIPT_DIR/../.git" ]]; then
+            log_info "Checking for CLI tool updates..."
+            if (cd "$SCRIPT_DIR/.." && git fetch && [[ $(git rev-parse HEAD) != $(git rev-parse @{u}) ]]); then
+                log_info "CLI updates found, proceeding..."
+                # Continue to self-update
+            else
+                log_info "CLI tools up to date."
+                return 0
+            fi
+        else
+            return 0
+        fi
+    elif [[ $pull_result -ne 0 ]]; then
+        die "Failed to pull images"
+    fi
+
     # Self-update CLI if it's a git repo
     if [[ -d "$SCRIPT_DIR/../.git" ]]; then
         log_info "Updating CLI tools..."
