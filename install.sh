@@ -239,20 +239,17 @@ install() {
     chmod +x "$INSTALL_DIR/milou"
     chmod +x "$INSTALL_DIR/lib"/*.sh 2>/dev/null || true
 
-    # Set ownership for default installation
-    if [[ "$INSTALL_DIR" == "/opt/milou" ]]; then
-        chown -R milou:milou "$INSTALL_DIR"
-        success "Set ownership to milou user"
-    fi
-
     # Restore backup if exists
     restore_backup "$backup_dir"
 
-    # Preserve ownership on restored files
-    if [[ "$INSTALL_DIR" == "/opt/milou" ]] && [[ -n "$backup_dir" ]]; then
-        [[ -f "$INSTALL_DIR/.env" ]] && chown milou:milou "$INSTALL_DIR/.env"
-        [[ -d "$INSTALL_DIR/ssl" ]] && chown -R milou:milou "$INSTALL_DIR/ssl"
-        [[ -d "$INSTALL_DIR/backups" ]] && chown -R milou:milou "$INSTALL_DIR/backups"
+    # Ensure complete ownership for default installation
+    # This runs LAST to fix permissions on restored backups, git files, and everything else
+    if [[ "$INSTALL_DIR" == "/opt/milou" ]]; then
+        log "Setting recursive ownership to milou:milou..."
+        chown -R milou:milou "$INSTALL_DIR"
+        # Secure .env specifically
+        [[ -f "$INSTALL_DIR/.env" ]] && chmod 600 "$INSTALL_DIR/.env"
+        success "Permissions fixed"
     fi
 
     success "Installation complete!"
