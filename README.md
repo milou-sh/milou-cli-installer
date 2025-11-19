@@ -38,7 +38,7 @@ This repository contains **only** the installer, bash modules, and sample docker
 | Component | Details |
 |-----------|---------|
 | OS | 64-bit Linux with bash 4+, systemd recommended |
-| CLI tooling | `curl`, `tar`, `jq`, `openssl`, and `sudo` available in `$PATH` |
+| CLI tooling | `curl`, `git`, `jq`, `openssl`, and `sudo` available in `$PATH` |
 | Docker | Docker Engine 24+ and docker compose plugin (the installer can auto-install on Debian/Ubuntu) |
 | Network | Outbound HTTPS to `github.com` + `ghcr.io` |
 | Credentials | *Required*: GitHub PAT with `read:packages` scope to pull Milou GHCR images |
@@ -130,6 +130,30 @@ backend:
 ```
 
 Supply `MILOU_VERSION` (via `.env` or `milou config set`) to pin a release. `milou check-updates` compares your version with the latest GitHub release tag.
+
+### Image channels and versioning
+
+You can choose which stream of images an instance should run by setting `MILOU_VERSION`:
+
+- `prod`: track the latest production images (also aliased by the `latest` tag).
+- `dev`: track the latest development images (also aliased by the `latest-dev` tag).
+- `<semver>`: pin to an explicit release, e.g. `1.0.19`.
+
+Examples:
+
+```bash
+# Demo (production) instance
+milou config set MILOU_VERSION prod
+milou update --no-backup prod
+
+# Staging (development) instance
+milou config set MILOU_VERSION dev
+milou update --no-backup dev
+
+# Pin to a specific version
+milou config set MILOU_VERSION 1.0.19
+milou update --no-backup 1.0.19
+```
 
 ## Advanced Commands
 

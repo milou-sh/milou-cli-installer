@@ -407,6 +407,12 @@ docker_update() {
 
     # Pull images (with version if specified)
     docker_pull "$target_version"
+    
+    # Self-update CLI if it's a git repo
+    if [[ -d "$SCRIPT_DIR/../.git" ]]; then
+        log_info "Updating CLI tools..."
+        (cd "$SCRIPT_DIR/.." && git pull >/dev/null 2>&1) || log_warn "Failed to update CLI tools (git pull failed)"
+    fi
 
     # Stop services before running migrations
     docker_stop

@@ -34,14 +34,19 @@ error() { echo -e "${RED}✗${NC} $1" >&2; exit 1; }
 check_deps() {
     log "Checking dependencies..."
 
-    # Check for curl or wget
-    if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
-        error "curl or wget is required"
-    fi
-
-    # Check for tar
-    if ! command -v tar &>/dev/null; then
-        error "tar is required"
+    # Check for git
+    if ! command -v git &>/dev/null; then
+        log "Installing git..."
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq >/dev/null 2>&1 || true
+            if apt-get install -y git >/dev/null 2>&1; then
+                success "git installed"
+            else
+                error "Could not install git automatically. Please install git manually."
+            fi
+        else
+            error "git is required but not found"
+        fi
     fi
 
     success "Dependencies OK"
@@ -204,18 +209,30 @@ install() {
     # Backup existing installation
     local backup_dir=$(backup_existing)
 
-    # Remove old installation
-    rm -rf "$INSTALL_DIR"
-
-    # Create directory
-    mkdir -p "$INSTALL_DIR"
-
-    # Download and extract
-    log "Downloading from $REPO..."
-    if command -v curl &>/dev/null; then
-        curl -fsSL "$REPO/archive/refs/heads/$BRANCH.tar.gz" | tar -xz -C "$INSTALL_DIR" --strip-components=1
+    # Install via git
+    log "Installing from $REPO ($BRANCH)..."
+    
+    if [[ -d "$INSTALL_DIR/.git" ]]; then
+        # Existing git repo
+        log "Updating existing git repository..."
+        if ! (cd "$INSTALL_DIR" && git fetch && git reset --hard "origin/$BRANCH"); then
+             error "Failed to update git repository"
+        fi
+        success "Updated successfully"
     else
-        wget -qO- "$REPO/archive/refs/heads/$BRANCH.tar.gz" | tar -xz -C "$INSTALL_DIR" --strip-components=1
+        # Fresh install or migration from tarball
+        if [[ -d "$INSTALL_DIR" ]]; then
+             log "Migrating existing installation to git..."
+             # Backup happens via backup_existing call above
+             rm -rf "${INSTALL_DIR:?}/"* "${INSTALL_DIR:?}/".* 2>/dev/null || true
+        fi
+        
+        # Create directory
+        mkdir -p "$INSTALL_DIR"
+
+        if ! git clone -b "$BRANCH" "$REPO" "$INSTALL_DIR"; then
+             error "Failed to clone repository"
+        fi
     fi
 
     # Make executable
