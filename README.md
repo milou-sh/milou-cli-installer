@@ -1,21 +1,6 @@
 # Milou CLI
 
-```
- __  __ ___ _     ___  _   _    ____ _     ___ 
-|  \/  |_ _| |   / _ \| | | |  / ___| |   |_ _|
-| |\/| || || |  | | | | | | | | |   | |    | | 
-| |  | || || |__| |_| | |_| | | |___| |___ | | 
-|_|  |_|___|_____\___/ \___/   \____|_____|___|
-                                               
-```
-
-Secure, scripted operations tooling for the Milou platform. The CLI itself is open source; Milou services stay proprietary and ship as GHCR images behind authentication.
-
-This repository contains **only** the installer, bash modules, and sample docker-compose definitions. The Milou applications and databases remain closed-source artifacts distributed through GHCR once you authenticate.
-
-- Hardened bash modules for setup, secrets management, SSL, Docker, GHCR, and backups
-- Single entrypoint (`milou`) with consistent UX for operators and CI
-- Works on any modern Linux host with Docker Engine + docker compose plugin installed
+Installation tooling for the Milou platform. The CLI itself is open source; Milou services stay proprietary and ship as GHCR images behind authentication.
 
 > 📘 Full product documentation (architecture, domain specifics, onboarding) lives in the public docs site at https://docs.milou.sh. This README focuses on running the installer + CLI.
 
@@ -67,16 +52,6 @@ curl -fsSL https://raw.githubusercontent.com/milou-sh/milou-cli-installer/master
 Adds the target directory to your shell `PATH` so you can run `milou` directly.
 
 > ℹ️ Need to run completely unprivileged? Download the tarball attached to every GitHub release and unpack it anywhere on your `$PATH`, then invoke `./milou setup --yes` with the required `MILOU_SETUP_*` values.
-
-## Open Source vs Proprietary Assets
-
-| Area | Status | Notes |
-|------|--------|-------|
-| Installer CLI (`milou`, `lib/*.sh`, `install.sh`) | Open source (MIT) | Maintained in this repo |
-| Docker Compose files | Open source | Reference layouts; feel free to fork |
-| Milou application images (`ghcr.io/milou-sh/milou/*`) | Proprietary | Requires paid subscription + PAT |
-| Documentation portal | Public | https://docs.milou.sh |
-| Commercial support playbooks | Proprietary | Available through your contract |
 
 ## Quick Usage
 
